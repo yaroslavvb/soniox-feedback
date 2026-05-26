@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Soniox Speech AI - Live Transcriber</title>
+    <meta name="description" content="Local real-time live microphone speech-to-text transcriber powered by Soniox Speech AI.">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <!-- Custom Style -->
+    <link rel="stylesheet" href="style.css?v=7">
+</head>
+<body>
+    <div class="glass-bg-glow"></div>
+    <div class="glass-bg-glow-2"></div>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="logo-area">
+                <span class="logo-icon">🎙️</span>
+                <div class="logo-text">
+                    <h1>Soniox <span class="accent-glow">Speech AI</span></h1>
+                    <p class="subtitle">Live Real-Time Transcriber</p>
+                </div>
+            </div>
+            <div class="status-indicator" id="connection-status">
+                <span class="indicator-dot disconnected"></span>
+                <span class="status-label" id="status-text">Disconnected</span>
+            </div>
+        </header>
+
+        <!-- Main Workspace -->
+        <main class="app-main">
+            <!-- Left Side: Controls & Status -->
+            <section class="control-panel glass-panel">
+                <h2>Control Dashboard</h2>
+                <p class="section-desc">Manage your live audio stream and speech configuration.</p>
+                
+
+
+                <!-- Engine 1 Selector -->
+                <div class="session-info" style="margin-bottom: 20px;">
+                    <h3>Speech Engine 1</h3>
+                    <div style="position: relative; margin-top: 8px; margin-bottom: 10px;">
+                        <select id="select-engine-1" style="width: 100%; padding: 12px 16px; border-radius: 10px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); color: var(--color-text-primary); font-family: var(--font-sans); font-size: 0.9rem; font-weight: 500; appearance: none; cursor: pointer; outline: none; transition: var(--transition-smooth); box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);">
+                            <optgroup label="Cloud Engines" style="background: var(--color-surface); color: var(--color-text-muted);">
+                                <option value="soniox" style="background: var(--color-surface); color: var(--color-text-primary);">Soniox Cloud (stt-rt-v4 - Premium High-Fidelity)</option>
+                            </optgroup>
+                            <optgroup label="Local ASR Engines (Installed)" style="background: var(--color-surface); color: var(--color-text-muted);">
+                                <option value="local" style="background: var(--color-surface); color: var(--color-text-primary);">Local Qwen3 ASR 0.6B (MLX GPU - Default)</option>
+                                <option value="local-coreml" style="background: var(--color-surface); color: var(--color-text-primary);">Local Qwen3 ASR 0.6B (CoreML Neural Engine)</option>
+                                <option value="local-1.7b" style="background: var(--color-surface); color: var(--color-text-primary);">Local Qwen3 ASR 1.7B (High-Accuracy MLX)</option>
+                                <option value="local-nemotron" style="background: var(--color-surface); color: var(--color-text-primary);">Local NVIDIA Nemotron 0.6B (CoreML Streaming)</option>
+                                <option value="local-parakeet" style="background: var(--color-surface); color: var(--color-text-primary);">Local NVIDIA Parakeet TDT v3 (Dictation)</option>
+                            </optgroup>
+                        </select>
+                        <div style="position: absolute; right: 14px; top: 50%; transform: translateY(-50%); pointer-events: none; color: var(--color-text-muted); font-size: 0.75rem;">▼</div>
+                    </div>
+
+                </div>
+
+                <!-- Engine 2 Selector -->
+                <div class="session-info" style="margin-bottom: 24px;">
+                    <h3>Speech Engine 2</h3>
+                    <div style="position: relative; margin-top: 8px; margin-bottom: 10px;">
+                        <select id="select-engine-2" style="width: 100%; padding: 12px 16px; border-radius: 10px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); color: var(--color-text-primary); font-family: var(--font-sans); font-size: 0.9rem; font-weight: 500; appearance: none; cursor: pointer; outline: none; transition: var(--transition-smooth); box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);">
+                            <optgroup label="Cloud Engines" style="background: var(--color-surface); color: var(--color-text-muted);">
+                                <option value="soniox" style="background: var(--color-surface); color: var(--color-text-primary);">Soniox Cloud (stt-rt-v4 - Premium High-Fidelity)</option>
+                            </optgroup>
+                            <optgroup label="Local ASR Engines (Installed)" style="background: var(--color-surface); color: var(--color-text-muted);">
+                                <option value="local" style="background: var(--color-surface); color: var(--color-text-primary);">Local Qwen3 ASR 0.6B (MLX GPU - Default)</option>
+                                <option value="local-coreml" style="background: var(--color-surface); color: var(--color-text-primary);">Local Qwen3 ASR 0.6B (CoreML Neural Engine)</option>
+                                <option value="local-1.7b" style="background: var(--color-surface); color: var(--color-text-primary);">Local Qwen3 ASR 1.7B (High-Accuracy MLX)</option>
+                                <option value="local-nemotron" style="background: var(--color-surface); color: var(--color-text-primary);">Local NVIDIA Nemotron 0.6B (CoreML Streaming)</option>
+                                <option value="local-parakeet" selected style="background: var(--color-surface); color: var(--color-text-primary);">Local NVIDIA Parakeet TDT v3 (Dictation)</option>
+                            </optgroup>
+                        </select>
+                        <div style="position: absolute; right: 14px; top: 50%; transform: translateY(-50%); pointer-events: none; color: var(--color-text-muted); font-size: 0.75rem;">▼</div>
+                    </div>
+
+                </div>
+
+                <div class="action-buttons">
+                    <button class="btn btn-primary" id="btn-start" aria-label="Start Transcription">
+                        <span class="btn-icon">▶️</span> Start Transcribing
+                    </button>
+                    <button class="btn btn-danger hidden" id="btn-stop" aria-label="Stop Transcription">
+                        <span class="btn-icon">⏹️</span> Stop Transcribing
+                    </button>
+                </div>
+
+                <div class="session-info">
+                    <h3>Session Properties</h3>
+                    <div class="info-grid" style="grid-template-columns: 1fr;">
+                        <div class="info-item" style="border-bottom: 1px dashed rgba(255,255,255,0.05); padding-bottom: 8px; margin-bottom: 8px;">
+                            <span class="info-label" style="font-weight:600; color:var(--color-primary);">Engine 1 Model</span>
+                            <span class="info-value" id="session-model-value-1">stt-rt-v4 (Live)</span>
+                        </div>
+                        <div class="info-item" style="border-bottom: 1px dashed rgba(255,255,255,0.05); padding-bottom: 8px; margin-bottom: 8px;">
+                            <span class="info-label" style="font-weight:600; color:hsl(270, 100%, 70%);">Engine 2 Model</span>
+                            <span class="info-value" id="session-model-value-2">Qwen3 ASR 0.6B (Local)</span>
+                        </div>
+                        <div class="info-item" style="display:flex; justify-content:space-between;">
+                            <div>
+                                <span class="info-label">Format</span>
+                                <span class="info-value" style="font-size:0.75rem;">PCM 16-bit Mono</span>
+                            </div>
+                            <div style="text-align:right;">
+                                <span class="info-label">Source</span>
+                                <span class="info-value" style="font-size:0.75rem;">Browser Mic</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Engine 1 Stats -->
+                <div class="session-info" style="margin-top: 20px; padding: 14px; border-radius: 12px; background: rgba(255, 255, 255, 0.01); border: 1px solid rgba(255, 255, 255, 0.03);">
+                    <h3 style="color: var(--color-primary); font-size: 0.85rem; text-transform: uppercase; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; letter-spacing: 0.05em;">
+                        <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--color-primary);"></span>
+                        Engine 1 Performance
+                    </h3>
+                    <div class="info-grid" style="gap: 8px;">
+                        <div class="info-item">
+                            <span class="info-label">Delay</span>
+                            <span class="info-value" id="metric-latency-1" style="font-family: var(--font-mono); font-weight: 600;">--</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Status</span>
+                            <span class="info-value" id="metric-latency-status-1" style="font-weight: 600; font-size: 0.75rem;">Waiting...</span>
+                        </div>
+                        
+                        <div class="latency-breakdown-panel" style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed rgba(255, 255, 255, 0.06);">
+                            <div class="info-item-sub" style="display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; padding-bottom: 4px;">
+                                <span style="color: var(--color-text-muted);">1. Capture Buffer</span>
+                                <span id="breakdown-capture-1" style="color: var(--color-text-secondary); font-family: var(--font-mono);">--</span>
+                            </div>
+                            <div class="info-item-sub" style="display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; padding-bottom: 4px;">
+                                <span style="color: var(--color-text-muted);">2. Local Network (RTT/2)</span>
+                                <span id="breakdown-local-1" style="color: var(--color-text-secondary); font-family: var(--font-mono);">--</span>
+                            </div>
+                            <div class="info-item-sub" style="display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; padding-bottom: 4px;">
+                                <span style="color: var(--color-text-muted);">3. Internet (Soniox RTT)</span>
+                                <span id="breakdown-cloud-1" style="color: var(--color-text-secondary); font-family: var(--font-mono);">--</span>
+                            </div>
+                            <div class="info-item-sub" style="display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; padding-bottom: 4px;">
+                                <span style="color: var(--color-text-muted);">4. Speech AI Model Delay</span>
+                                <span id="breakdown-model-1" style="color: var(--color-text-secondary); font-family: var(--font-mono);">--</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Engine 2 Stats -->
+                <div class="session-info" style="margin-top: 16px; padding: 14px; border-radius: 12px; background: rgba(255, 255, 255, 0.01); border: 1px solid rgba(255, 255, 255, 0.03);">
+                    <h3 style="color: hsl(270, 100%, 70%); font-size: 0.85rem; text-transform: uppercase; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; letter-spacing: 0.05em;">
+                        <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: hsl(270, 100%, 70%);"></span>
+                        Engine 2 Performance
+                    </h3>
+                    <div class="info-grid" style="gap: 8px;">
+                        <div class="info-item">
+                            <span class="info-label">Delay</span>
+                            <span class="info-value" id="metric-latency-2" style="font-family: var(--font-mono); font-weight: 600;">--</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Status</span>
+                            <span class="info-value" id="metric-latency-status-2" style="font-weight: 600; font-size: 0.75rem;">Waiting...</span>
+                        </div>
+                        
+                        <div class="latency-breakdown-panel" style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed rgba(255, 255, 255, 0.06);">
+                            <div class="info-item-sub" style="display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; padding-bottom: 4px;">
+                                <span style="color: var(--color-text-muted);">1. Capture Buffer</span>
+                                <span id="breakdown-capture-2" style="color: var(--color-text-secondary); font-family: var(--font-mono);">--</span>
+                            </div>
+                            <div class="info-item-sub" style="display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; padding-bottom: 4px;">
+                                <span style="color: var(--color-text-muted);">2. Local Network (RTT/2)</span>
+                                <span id="breakdown-local-2" style="color: var(--color-text-secondary); font-family: var(--font-mono);">--</span>
+                            </div>
+                            <div class="info-item-sub" style="display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; padding-bottom: 4px;">
+                                <span style="color: var(--color-text-muted);">3. Internet (Soniox RTT)</span>
+                                <span id="breakdown-cloud-2" style="color: var(--color-text-secondary); font-family: var(--font-mono);">--</span>
+                            </div>
+                            <div class="info-item-sub" style="display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; padding-bottom: 4px;">
+                                <span style="color: var(--color-text-muted);">4. Speech AI Model Delay</span>
+                                <span id="breakdown-model-2" style="color: var(--color-text-secondary); font-family: var(--font-mono);">--</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Right Side: Dual-Engine Transcription Panel -->
+            <section class="transcription-panel glass-panel" style="display: flex; flex-direction: column; gap: 14px;">
+                <div class="panel-header" style="margin-bottom: 0;">
+                    <h2>Live Transcription Comparison</h2>
+                    <div class="action-tools">
+                        <button class="tool-btn" id="btn-clear" aria-label="Clear all transcripts text">
+                            <span class="tool-icon">🗑️</span> Clear All
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Engine 1 Transcript Box -->
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <h3 style="font-size: 0.95rem; font-weight: 600; color: var(--color-accent); margin-bottom: 0; display: flex; align-items: center; gap: 8px;">
+                            <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--color-accent); box-shadow: 0 0 8px var(--color-accent);"></span>
+                            Engine 1: <span id="transcript-label-1" style="color: var(--color-text-primary);">Soniox Cloud</span>
+                        </h3>
+                    </div>
+                    <div class="transcript-display-container" style="height: 180px; min-height: 180px; margin-bottom: 0;">
+                        <div class="transcript-box" id="transcript-box-1">
+                            <div class="transcript-placeholder" id="transcript-placeholder-1">
+                                <span class="placeholder-icon">🎙️</span>
+                                <p>Engine 1 is ready. Click "Start Transcribing" to begin.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Engine 2 Transcript Box -->
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <h3 style="font-size: 0.95rem; font-weight: 600; color: hsl(270, 100%, 70%); margin-bottom: 0; display: flex; align-items: center; gap: 8px;">
+                            <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: hsl(270, 100%, 70%); box-shadow: 0 0 8px hsl(270, 100%, 70%);"></span>
+                            Engine 2: <span id="transcript-label-2" style="color: var(--color-text-primary);">Local Qwen3</span>
+                        </h3>
+                    </div>
+                    <div class="transcript-display-container" style="height: 180px; min-height: 180px; margin-bottom: 0;">
+                        <div class="transcript-box" id="transcript-box-2">
+                            <div class="transcript-placeholder" id="transcript-placeholder-2">
+                                <span class="placeholder-icon">🎙️</span>
+                                <p>Engine 2 is ready. Click "Start Transcribing" to begin.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer class="app-footer">
+            <p>Powered by Soniox Speech AI &bull; Built with FastAPI &amp; HTML5 Web Audio</p>
+        </footer>
+    </div>
+
+    <!-- Script -->
+    <script src="app.js?v=11"></script>
+</body>
+</html>
