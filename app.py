@@ -130,33 +130,60 @@ async def websocket_transcribe(websocket: WebSocket):
             init_msg = await local_ws.recv()
             print(f"Local ASR initialized: {init_msg}")
 
-            # Send session.update to configure language and behavior
+            # Map engine selection to Soniqo local speech-server parameters
+            local_engine_name = "qwen3"
+            local_model_name = None
+
+            if engine == "local-coreml":
+                local_engine_name = "qwen3-coreml"
+            elif engine == "local-1.7b":
+                local_engine_name = "qwen3"
+                local_model_name = "1.7B"
+            elif engine == "local-nemotron":
+                local_engine_name = "nemotron"
+            elif engine == "local-parakeet":
+                local_engine_name = "parakeet"
+
+            # Send session.update to configure language, ASR engine, and behavior
             try:
                 if "parakeet" in engine:
                     # Enable Automatic Language Detection / Multilingual transcription for Parakeet
+                    # with Hugging Face/NeMo streaming parameters: chunk_secs=2.0, right_context_secs=2.0, left_context_secs=10.0
                     update_event = {
                         "type": "session.update",
                         "session": {
                             "modalities": ["audio", "text"],
-                            "instructions": "Transcribe the audio in its native language. Automatically detect the spoken language and transcribe it accurately. Output native letters and punctuation. Ignore quiet background noises."
+                            "engine": local_engine_name,
+                            "chunk_secs": 2.0,
+                            "right_context_secs": 2.0,
+                            "left_context_secs": 10.0,
+                            "instructions": (
+                                "Transcribe the audio in its native language. Use chunked streaming mode with 2-second "
+                                "chunk windows (chunk_secs=2) and 2.0-second lookahead right context (right_context_secs=2.0) "
+                                "and 10.0-second historical left context (left_context_secs=10.0) for maximum spelling accuracy. "
+                                "Automatically detect the spoken language and transcribe it accurately. Output native letters "
+                                "and punctuation. Ignore quiet background noises."
+                            )
                         }
                     }
-                    await local_ws.send(json.dumps(update_event))
-                    update_resp = await local_ws.recv()
-                    print(f"🚀 Configured Automatic Language Detection on local speech-server: {update_resp}")
                 else:
                     # Enforce strict English-only decoding for other local models
                     update_event = {
                         "type": "session.update",
                         "session": {
                             "modalities": ["audio", "text"],
+                            "engine": local_engine_name,
                             "language": "english",
                             "instructions": "Transcribe strictly in English. Only output English text. Do not output any Chinese, Russian, or other foreign characters. Ignore quiet background noises, hums, and throat-clearing fillers."
                         }
                     }
-                    await local_ws.send(json.dumps(update_event))
-                    update_resp = await local_ws.recv()
-                    print(f"🚀 Configured English-only mode on local speech-server: {update_resp}")
+                
+                if local_model_name:
+                    update_event["session"]["model"] = local_model_name
+
+                await local_ws.send(json.dumps(update_event))
+                update_resp = await local_ws.recv()
+                print(f"🚀 Configured local speech-server ({local_engine_name}): {update_resp}")
             except Exception as e:
                 print(f"⚠️ Failed to send session.update: {e}")
 
@@ -165,12 +192,15 @@ async def websocket_transcribe(websocket: WebSocket):
             last_commit_time = 0.0
             last_processing_time_ms = 80.0  # Neural net inference time tracking
 
+            # Determine the commit ticker interval: 2.0 seconds for parakeet (to match chunk_secs=2), 500ms for others
+            commit_interval = 2.0 if "parakeet" in engine else 0.5
+
             async def commit_ticker():
-                """Task to send input_audio_buffer.commit periodically (every 500ms) to force fast real-time ASR."""
+                """Task to send input_audio_buffer.commit periodically to force fast real-time ASR."""
                 nonlocal is_streaming_active, last_commit_time
                 try:
                     while True:
-                        await asyncio.sleep(0.5)
+                        await asyncio.sleep(commit_interval)
                         if is_streaming_active:
                             last_commit_time = time.time()
                             await local_ws.send(json.dumps({"type": "input_audio_buffer.commit"}))
