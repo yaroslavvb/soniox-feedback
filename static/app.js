@@ -83,6 +83,14 @@ const modelMetadata = {
     "local-parakeet": {
         label: "Parakeet TDT v3 (Local)",
         desc: "🦅 <strong>NVIDIA Parakeet TDT v3 ASR:</strong> Active Multilingual Mode with <strong>Automatic Language Detection</strong> (25 European languages!). Blazing fast Neural Engine inference with native punctuation and casing."
+    },
+    "local-whisperkit": {
+        label: "WhisperKit Turbo (Local)",
+        desc: "🌀 <strong>WhisperKit Large v3 Turbo:</strong> Premium offline speech-to-text running natively on the <strong>Apple Neural Engine (ANE)</strong> via CoreML. Matches cloud quality at ~2.2% WER with sub-200ms latency."
+    },
+    "local-moonshine": {
+        label: "Moonshine Tiny (Local)",
+        desc: "🌙 <strong>Moonshine Streaming Tiny:</strong> Quantized on-device ONNX model optimized for low-latency voice agents. Sub-100ms processing delay using stateful sliding-window token generation."
     }
 };
 
@@ -173,8 +181,8 @@ async function startRecording() {
             
             // 2. Start Microphone capture
             try {
-                const sampleRate1 = engine1.startsWith("local") ? 24000 : 16000;
-                const sampleRate2 = engine2.startsWith("local") ? 24000 : 16000;
+                const sampleRate1 = engine1.startsWith("local") ? (engine1 === "local-moonshine" ? 16000 : 24000) : 16000;
+                const sampleRate2 = engine2.startsWith("local") ? (engine2 === "local-moonshine" ? 16000 : 24000) : 16000;
                 await initAudio(sampleRate1, sampleRate2);
                 isRecording = true;
                 btnStart.classList.add("hidden");

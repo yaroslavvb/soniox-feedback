@@ -19,6 +19,15 @@ from soniox import AsyncSonioxClient
 from soniox.types import RealtimeSTTConfig
 from soniox.utils import render_tokens
 
+# Lazy load Moonshine ASR modules
+moonshine_model = None
+moonshine_tokenizer = None
+try:
+    import numpy as np
+    import moonshine_onnx
+except ImportError:
+    pass
+
 app = FastAPI(title="Soniox Real-Time Live Transcriber")
 
 # Cloud RTT dynamic measurement
@@ -49,7 +58,16 @@ async def cloud_rtt_loop():
 
 @app.on_event("startup")
 async def startup_event():
+    global moonshine_model, moonshine_tokenizer
     asyncio.create_task(cloud_rtt_loop())
+    try:
+        import moonshine_onnx
+        print("⚡ Pre-loading Moonshine tiny model...")
+        moonshine_model = moonshine_onnx.MoonshineOnnxModel(model_name="moonshine/tiny")
+        moonshine_tokenizer = moonshine_onnx.load_tokenizer()
+        print("⚡ Moonshine ONNX model loaded successfully!")
+    except Exception as e:
+        print(f"⚠️ Failed to load Moonshine: {e}")
 
 # Parse command line arguments
 def parse_arguments():
@@ -112,7 +130,144 @@ async def websocket_transcribe(websocket: WebSocket):
     print(f"🔌 Browser connected via WebSocket. Engine: {engine}")
 
     if engine.startswith("local"):
-        # Connect to Soniqo local speech-server
+        if engine == "local-moonshine":
+            # Run local native Moonshine ASR pipeline directly inside FastAPI
+            print("🌙 Launching native local Moonshine ASR pipeline...")
+            if not moonshine_model or not moonshine_tokenizer:
+                print("❌ Error: Moonshine model is not loaded!")
+                await websocket.send_json({
+                    "final_text": "❌ Error: Moonshine model is not loaded on the server! Please install it.",
+                    "interim_text": ""
+                })
+                await websocket.close()
+                return
+
+            try:
+                # Keep track of active streaming status to auto-commit
+                is_streaming_active = False
+                last_commit_time = 0.0
+                last_processing_time_ms = 40.0  # Moonshine tiny inference latency
+                
+                audio_buffer = bytearray()
+                completed_words = []
+                start_time = time.time()
+
+                # Deduplication logic (shares the same word overlap detector)
+                def clean_and_append_transcript(completed_list, new_text):
+                    new_text = new_text.strip()
+                    if not new_text:
+                        return
+                    
+                    new_words = new_text.split()
+                    if not new_words:
+                        return
+                    
+                    if not completed_list:
+                        completed_list.extend(new_words)
+                        return
+                    
+                    max_overlap = 0
+                    completed_len = len(completed_list)
+                    new_len = len(new_words)
+                    
+                    for size in range(1, min(completed_len, new_len, 10) + 1):
+                        end_slice = completed_list[-size:]
+                        start_slice = new_words[:size]
+                        
+                        end_words_clean = [w.lower().strip(".,?!;:-_\"'") for w in end_slice]
+                        start_words_clean = [w.lower().strip(".,?!;:-_\"'") for w in start_slice]
+                        
+                        if end_words_clean == start_words_clean:
+                            max_overlap = size
+                            
+                    non_overlapping = new_words[max_overlap:]
+                    completed_list.extend(non_overlapping)
+
+                async def commit_ticker():
+                    """Task to send local commit trigger every 500ms to force fast Moonshine ASR."""
+                    nonlocal is_streaming_active, last_commit_time
+                    try:
+                        while True:
+                            await asyncio.sleep(0.5)
+                            if is_streaming_active and len(audio_buffer) > 0:
+                                last_commit_time = time.time()
+                                # Convert buffered raw mono int16 PCM to float32 normalized np array
+                                audio_np = np.frombuffer(audio_buffer, dtype=np.int16).astype(np.float32) / 32768.0
+                                
+                                # Run Moonshine model inference
+                                t0 = time.perf_counter()
+                                tokens = moonshine_model.generate(audio_np[None, ...])
+                                transcript = moonshine_tokenizer.decode_batch(tokens)[0].strip()
+                                last_processing_time_ms = (time.perf_counter() - t0) * 1000.0
+                                
+                                if transcript:
+                                    clean_and_append_transcript(completed_words, transcript)
+                                
+                                final_text = " ".join(completed_words)
+                                elapsed_ms = int((time.time() - start_time) * 1000)
+                                latest_start_ms = max(0, elapsed_ms - int(last_processing_time_ms) - 30)
+                                
+                                await websocket.send_json({
+                                    "final_text": final_text,
+                                    "interim_text": "",
+                                    "latest_start_ms": latest_start_ms,
+                                    "latest_end_ms": elapsed_ms
+                                })
+                    except asyncio.CancelledError:
+                        pass
+                    except Exception as e:
+                        print(f"⚠️ Error in Moonshine commit ticker: {e}")
+
+                async def receive_from_browser():
+                    """Task to read PCM bytes from the browser and append to Moonshine buffer."""
+                    nonlocal is_streaming_active
+                    try:
+                        while True:
+                            message = await websocket.receive()
+                            if message["type"] == "websocket.disconnect":
+                                raise WebSocketDisconnect(message.get("code", 1000))
+                            
+                            if "bytes" in message:
+                                data = message["bytes"]
+                                if data:
+                                    is_streaming_active = True
+                                    audio_buffer.extend(data)
+                            elif "text" in message:
+                                text_data = message["text"]
+                                try:
+                                    payload = json.loads(text_data)
+                                    if payload.get("type") == "ping":
+                                        await websocket.send_json({
+                                            "type": "pong",
+                                            "client_time": payload.get("client_time"),
+                                            "cloud_rtt": 0.1
+                                        })
+                                except Exception as e:
+                                    print(f"⚠️ Error parsing Moonshine client text message: {e}")
+                    except WebSocketDisconnect:
+                        print("🔌 Browser disconnected from local Moonshine.")
+                        is_streaming_active = False
+                    except Exception as e:
+                        print(f"⚠️ Error receiving from browser (Moonshine): {e}")
+
+                browser_recv_task = asyncio.create_task(receive_from_browser())
+                ticker_task = asyncio.create_task(commit_ticker())
+
+                done, pending = await asyncio.wait(
+                    [browser_recv_task, ticker_task],
+                    return_when=asyncio.FIRST_COMPLETED
+                )
+
+                for task in pending:
+                    task.cancel()
+
+            except Exception as e:
+                print(f"❌ Soniqo Native Moonshine session error: {e}")
+            finally:
+                print("🔌 Soniqo Native Moonshine client closed.")
+            return
+
+        # Connect to Soniqo local speech-server for other local engines
         try:
             local_ws = await websockets.connect("ws://127.0.0.1:8090/v1/realtime")
             print("🚀 Connected to Soniqo Local speech-server.")
@@ -143,11 +298,13 @@ async def websocket_transcribe(websocket: WebSocket):
                 local_engine_name = "nemotron"
             elif engine == "local-parakeet":
                 local_engine_name = "parakeet"
+            elif engine == "local-whisperkit":
+                local_engine_name = "whisperkit"
 
             # Send session.update to configure language, ASR engine, and behavior
             try:
-                if "parakeet" in engine:
-                    # Enable Automatic Language Detection / Multilingual transcription for Parakeet
+                if "parakeet" in engine or "whisperkit" in engine:
+                    # Enable Automatic Language Detection / Multilingual transcription
                     # with Hugging Face/NeMo streaming parameters: chunk_secs=2.0, right_context_secs=2.0, left_context_secs=10.0
                     update_event = {
                         "type": "session.update",
