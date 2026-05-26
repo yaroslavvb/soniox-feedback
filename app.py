@@ -446,6 +446,72 @@ async def websocket_transcribe(websocket: WebSocket):
             await client.aclose()
             print("🔌 Soniox client closed and connection cleaned up.")
 
+from fastapi import Body
+from fastapi.responses import FileResponse
+
+@app.post("/api/tts")
+@app.post("/v1/audio/speech")
+async def text_to_speech(
+    model: str = Body("oai-kokoro"),
+    input: str = Body(...),
+    voice: str = Body("alloy")
+):
+    """
+    OpenAI-compatible Text-To-Speech API endpoint.
+    Invokes the local on-device Apple Silicon Neural Engine model via Soniqo CLI.
+    """
+    print(f"🔊 Local TTS Request: model={model}, voice={voice}, input='{input[:40]}...'")
+    
+    import tempfile
+    temp_wav = tempfile.mktemp(suffix=".wav")
+    
+    try:
+        if "qwen" in model.lower():
+            # Invoke local Qwen3-TTS GPU/MLX model securely
+            cmd = ["speech", "speak", input, "--model", "base", "--output", temp_wav]
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await proc.communicate()
+            if proc.returncode != 0:
+                print(f"❌ Qwen3-TTS error: {stderr.decode()}")
+                return {"error": f"Qwen3-TTS synthesis failed: {stderr.decode()}"}
+        else:
+            # Default: Local Kokoro-82M CoreML on Neural Engine (oai-kokoro)
+            # Map standard OpenAI voices to Kokoro's presets
+            voice_map = {
+                "alloy": "af_alloy",
+                "echo": "am_echo",
+                "fable": "bm_fable",
+                "onyx": "am_onyx",
+                "nova": "af_nova",
+                "shimmer": "af_sarah"
+            }
+            voice_preset = voice_map.get(voice.lower(), "af_heart")
+            
+            cmd = ["speech", "kokoro", input, "--voice", voice_preset, "--output", temp_wav]
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await proc.communicate()
+            if proc.returncode != 0:
+                print(f"❌ Kokoro-82M error: {stderr.decode()}")
+                return {"error": f"Kokoro-82M synthesis failed: {stderr.decode()}"}
+                
+        # Return the generated WAV file directly
+        if os.path.exists(temp_wav) and os.path.getsize(temp_wav) > 0:
+            return FileResponse(temp_wav, media_type="audio/wav", filename="speech.wav")
+        else:
+            return {"error": "Failed to generate audio file."}
+            
+    except Exception as e:
+        print(f"❌ TTS exception: {e}")
+        return {"error": str(e)}
+
 def run_server():
     import uvicorn
     print(f"🌐 Starting local server at http://127.0.0.1:{args.port}")

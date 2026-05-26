@@ -236,6 +236,36 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Text-to-Speech Synthesizer Card -->
+                <div style="display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; margin-top: 10px; border-radius: 10px; background: rgba(255, 255, 255, 0.01); border: 1px solid rgba(255, 255, 255, 0.03);">
+                    <h3 style="font-size: 0.85rem; font-weight: 600; color: var(--color-success); margin-bottom: 2px; display: flex; align-items: center; gap: 6px; text-transform: uppercase; letter-spacing: 0.05em;">
+                        <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--color-success); box-shadow: 0 0 6px var(--color-success);"></span>
+                        Neural TTS Synthesizer (Local ANE)
+                    </h3>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <select id="select-tts-model" style="flex: 1.5; padding: 8px 12px; border-radius: 8px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); color: var(--color-text-primary); font-family: var(--font-sans); font-size: 0.75rem; cursor: pointer; outline: none;">
+                            <option value="oai-kokoro">oai-kokoro (Kokoro-82M CoreML)</option>
+                            <option value="oai-qwen3-tts">oai-qwen3-tts (Qwen3-TTS 0.6B CoreML)</option>
+                        </select>
+                        <select id="select-tts-voice" style="flex: 1; padding: 8px 12px; border-radius: 8px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); color: var(--color-text-primary); font-family: var(--font-sans); font-size: 0.75rem; cursor: pointer; outline: none;">
+                            <option value="alloy">Alloy (Balanced)</option>
+                            <option value="echo">Echo (Male)</option>
+                            <option value="fable">Fable (Expressive)</option>
+                            <option value="onyx">Onyx (Deep)</option>
+                            <option value="nova">Nova (Bright)</option>
+                            <option value="shimmer">Shimmer (Pro)</option>
+                        </select>
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <input type="text" id="input-tts-text" value="Hello! This is Kokoro-82M synthesizing speech locally on your Mac's Neural Engine." placeholder="Enter text to synthesize..." style="flex: 1; padding: 8px 12px; border-radius: 8px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); color: var(--color-text-primary); font-family: var(--font-sans); font-size: 0.8rem; outline: none;">
+                        <button class="tool-btn" id="btn-synthesize" style="padding: 8px 16px; border-radius: 8px; background: var(--color-accent); color: var(--color-text-primary); border: none; font-weight: 600; cursor: pointer; transition: var(--transition-smooth); font-size: 0.8rem;">🗣️ Speak</button>
+                    </div>
+                    <div id="tts-audio-container" style="display: none; justify-content: space-between; align-items: center; padding: 6px 10px; border-radius: 6px; background: rgba(0, 0, 0, 0.1); margin-top: 4px;">
+                        <audio id="tts-audio" controls style="height: 24px; width: 100%; max-width: 220px; outline: none;"></audio>
+                        <span id="tts-latency" style="font-family: var(--font-mono); font-size: 0.7rem; color: var(--color-text-muted);">--ms</span>
+                    </div>
+                </div>
             </section>
         </main>
 
@@ -246,6 +276,6 @@
     </div>
 
     <!-- Script -->
-    <script src="app.js?v=11"></script>
+    <script src="app.js?v=12"></script>
 </body>
 </html>
