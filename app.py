@@ -349,8 +349,16 @@ async def websocket_transcribe(websocket: WebSocket):
             last_commit_time = 0.0
             last_processing_time_ms = 80.0  # Neural net inference time tracking
 
-            # Determine the commit ticker interval: 2.0 seconds for parakeet (to match chunk_secs=2), 500ms for others
-            commit_interval = 2.0 if "parakeet" in engine else 0.5
+            # Determine the commit ticker interval:
+            # - 2.0 seconds for parakeet (to match chunk_secs=2)
+            # - 0.3 seconds (300ms) for whisperkit to force maximum real-time granularity
+            # - 0.5 seconds (500ms) for other local engines
+            if "parakeet" in engine:
+                commit_interval = 2.0
+            elif "whisperkit" in engine:
+                commit_interval = 0.3
+            else:
+                commit_interval = 0.5
 
             async def commit_ticker():
                 """Task to send input_audio_buffer.commit periodically to force fast real-time ASR."""
