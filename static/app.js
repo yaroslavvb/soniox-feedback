@@ -695,3 +695,119 @@ function resetLatencyBreakdownUI(slot) {
     if (breakdownModel) breakdownModel.textContent = "--";
 }
 
+// Lincoln Gettysburg Address Reference Text
+const LINCOLN_GETTYSBURG_ADDRESS = `Four score and seven years ago our fathers brought forth on this continent, a new nation, conceived in Liberty, and dedicated to the proposition that all men are created equal.
+
+Now we are engaged in a great civil war, testing whether that nation, or any nation so conceived and so dedicated, can long endure. We are met on a great battle-field of that war. We have come to dedicate a portion of that field, as a final resting place for those who here gave their lives that that nation might live. It is altogether fitting and proper that we should do this.
+
+But, in a larger sense, we can not dedicate -- we can not consecrate -- we can not hallow -- this ground. The brave men, living and dead, who struggled here, have consecrated it, far above our poor power to add or detract. The world will little note, nor long remember what we say here, but it can never forget what they did here. It is for us the living, rather, to be dedicated here to the unfinished work which they who fought here have thus far so nobly advanced. It is rather for us to be here dedicated to the great task remaining before us -- that from these honored dead we take increased devotion to that cause for which they gave the last full measure of devotion -- that we here highly resolve that these dead shall not have died in vain -- that this nation, under God, shall have a new birth of freedom -- and that government of the people, by the people, for the people, shall not perish from the earth.`;
+
+// Levenshtein distance based ASR Word Error Rate (WER) and Word Accuracy calculator
+function calculateASRAccuracy(referenceText, hypothesisText) {
+    const cleanText = (text) => {
+        return text
+            .toLowerCase()
+            .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?"'—–]/g, " ")
+            .replace(/\s+/g, " ")
+            .trim();
+    };
+
+    const refWords = cleanText(referenceText).split(" ").filter(w => w.length > 0);
+    const hypWords = cleanText(hypothesisText).split(" ").filter(w => w.length > 0);
+
+    if (refWords.length === 0) {
+        return {
+            wer: hypWords.length === 0 ? 0 : 1,
+            accuracy: hypWords.length === 0 ? 100.0 : 0.0,
+            refLength: 0,
+            hypLength: hypWords.length
+        };
+    }
+
+    const n = refWords.length;
+    const m = hypWords.length;
+
+    // DP table initialization
+    const dp = Array.from({ length: n + 1 }, () => Array(m + 1).fill(0));
+
+    for (let i = 0; i <= n; i++) dp[i][0] = i;
+    for (let j = 0; j <= m; j++) dp[0][j] = j;
+
+    // DP table computation
+    for (let i = 1; i <= n; i++) {
+        for (let j = 1; j <= m; j++) {
+            if (refWords[i - 1] === hypWords[j - 1]) {
+                dp[i][j] = dp[i - 1][j - 1];
+            } else {
+                dp[i][j] = Math.min(
+                    dp[i - 1][j] + 1,    // Deletion
+                    dp[i][j - 1] + 1,    // Insertion
+                    dp[i - 1][j - 1] + 1 // Substitution
+                );
+            }
+        }
+    }
+
+    const edits = dp[n][m];
+    const wer = edits / n;
+    const accuracy = Math.max(0, 1 - wer) * 100.0;
+
+    return {
+        wer: wer,
+        accuracy: accuracy,
+        refLength: n,
+        hypLength: m
+    };
+}
+
+// UI Event Listeners for Lincoln Gettysburg Address Scoring Modal
+const scoreModal = document.getElementById("score-modal");
+const closeScoreModal = document.getElementById("close-score-modal");
+const btnCloseScore = document.getElementById("btn-close-score");
+const btnScoreLincoln = document.getElementById("btn-score-lincoln");
+
+if (btnScoreLincoln && scoreModal) {
+    btnScoreLincoln.addEventListener("click", () => {
+        // Collect full hypothesis texts (Finalized + Interim)
+        const hypText1 = ((currentFinalText1 || "") + " " + (currentInterimText1 || "")).trim();
+        const hypText2 = ((currentFinalText2 || "") + " " + (currentInterimText2 || "")).trim();
+        
+        // Calculate WER metrics
+        const res1 = calculateASRAccuracy(LINCOLN_GETTYSBURG_ADDRESS, hypText1);
+        const res2 = calculateASRAccuracy(LINCOLN_GETTYSBURG_ADDRESS, hypText2);
+        
+        // Update Modal Labels
+        const lbl1 = document.getElementById("score-engine-label-1");
+        const lbl2 = document.getElementById("score-engine-label-2");
+        if (selectEngine1 && lbl1) lbl1.textContent = modelMetadata[selectEngine1.value]?.label.split(" (")[0] || "Engine 1";
+        if (selectEngine2 && lbl2) lbl2.textContent = modelMetadata[selectEngine2.value]?.label.split(" (")[0] || "Engine 2";
+        
+        // Render Accuracy Metrics
+        document.getElementById("score-accuracy-1").textContent = `${res1.accuracy.toFixed(1)}%`;
+        document.getElementById("score-wer-1").textContent = `Word Error Rate: ${(res1.wer * 100.0).toFixed(1)}%`;
+        document.getElementById("score-stats-1").textContent = `Words matched: ${res1.hypLength} / ${res1.refLength}`;
+        
+        document.getElementById("score-accuracy-2").textContent = `${res2.accuracy.toFixed(1)}%`;
+        document.getElementById("score-wer-2").textContent = `Word Error Rate: ${(res2.wer * 100.0).toFixed(1)}%`;
+        document.getElementById("score-stats-2").textContent = `Words matched: ${res2.hypLength} / ${res2.refLength}`;
+        
+        document.getElementById("reference-word-count").textContent = `${res1.refLength} Words`;
+
+        // Slide/Fade Modal in
+        scoreModal.style.pointerEvents = "auto";
+        scoreModal.style.opacity = "1";
+        scoreModal.querySelector(".modal-content").style.transform = "scale(1)";
+    });
+}
+
+function hideScoreModal() {
+    if (scoreModal) {
+        scoreModal.style.pointerEvents = "none";
+        scoreModal.style.opacity = "0";
+        scoreModal.querySelector(".modal-content").style.transform = "scale(0.9)";
+    }
+}
+
+if (closeScoreModal) closeScoreModal.addEventListener("click", hideScoreModal);
+if (btnCloseScore) btnCloseScore.addEventListener("click", hideScoreModal);
+
