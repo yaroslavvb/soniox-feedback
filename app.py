@@ -32,12 +32,13 @@ app = FastAPI(title="Soniox Real-Time Live Transcriber")
 
 # Cloud RTT dynamic measurement
 latest_cloud_rtt = 50.0  # Fallback default RTT in milliseconds
+latest_elevenlabs_rtt = 50.0  # Fallback default ElevenLabs RTT in milliseconds
 
-async def measure_cloud_rtt():
+async def measure_cloud_rtt(host="api.soniox.com"):
     try:
         t0 = time.perf_counter()
         reader, writer = await asyncio.wait_for(
-            asyncio.open_connection("api.soniox.com", 443),
+            asyncio.open_connection(host, 443),
             timeout=2.0
         )
         writer.close()
@@ -45,15 +46,22 @@ async def measure_cloud_rtt():
         rtt = (time.perf_counter() - t0) * 1000.0
         return rtt
     except Exception as e:
-        print(f"⚠️ Error measuring cloud RTT: {e}")
+        print(f"⚠️ Error measuring cloud RTT for {host}: {e}")
         return 0.0
 
 async def cloud_rtt_loop():
-    global latest_cloud_rtt
+    global latest_cloud_rtt, latest_elevenlabs_rtt
     while True:
-        rtt = await measure_cloud_rtt()
+        # Soniox RTT
+        rtt = await measure_cloud_rtt("api.soniox.com")
         if rtt > 0:
             latest_cloud_rtt = rtt
+        
+        # ElevenLabs RTT
+        el_rtt = await measure_cloud_rtt("api.elevenlabs.io")
+        if el_rtt > 0:
+            latest_elevenlabs_rtt = el_rtt
+            
         await asyncio.sleep(5.0)
 
 @app.on_event("startup")
@@ -81,6 +89,12 @@ def parse_arguments():
         help="Soniox API Key (defaults to SONIOX_API_KEY env var)"
     )
     parser.add_argument(
+        "--elevenlabs-api-key",
+        type=str,
+        default=os.environ.get("ELEVENLABS_API_KEY"),
+        help="ElevenLabs API Key (defaults to ELEVENLABS_API_KEY env var)"
+    )
+    parser.add_argument(
         "--port",
         type=int,
         default=8000,
@@ -98,6 +112,7 @@ args = parse_arguments()
 
 # Store configured API key globally
 CONFIG_API_KEY = args.api_key or os.environ.get("SONIOX_API_KEY")
+CONFIG_ELEVENLABS_API_KEY = args.elevenlabs_api_key or os.environ.get("ELEVENLABS_API_KEY")
 
 @app.get("/")
 async def get_index():
@@ -129,7 +144,121 @@ async def websocket_transcribe(websocket: WebSocket):
     
     print(f"🔌 Browser connected via WebSocket. Engine: {engine}")
 
-    if engine.startswith("local"):
+    if engine == "elevenlabs":
+        # ElevenLabs Cloud Pipeline
+        elevenlabs_api_key = CONFIG_ELEVENLABS_API_KEY
+        if not elevenlabs_api_key:
+            print("❌ Error: ElevenLabs API Key is missing!")
+            await websocket.send_json({
+                "final_text": "❌ Error: ElevenLabs API Key is missing on the server! Please configure it.",
+                "interim_text": ""
+            })
+            await websocket.close()
+            return
+
+        elevenlabs_url = "wss://api.elevenlabs.io/v1/speech-to-text/realtime?model_id=scribe_v2_realtime&commit_strategy=vad"
+        try:
+            async with websockets.connect(
+                elevenlabs_url,
+                additional_headers={"xi-api-key": elevenlabs_api_key}
+            ) as el_ws:
+                print("🚀 Connected to ElevenLabs Real-Time STT API.")
+
+                # Receive and log session_started
+                session_start_msg = await el_ws.recv()
+                print(f"ElevenLabs Session Started: {session_start_msg}")
+
+                async def receive_from_browser():
+                    try:
+                        while True:
+                            message = await websocket.receive()
+                            if message["type"] == "websocket.disconnect":
+                                raise WebSocketDisconnect(message.get("code", 1000))
+
+                            if "bytes" in message:
+                                data = message["bytes"]
+                                if data:
+                                    # Convert audio bytes to base64
+                                    base64_audio = base64.b64encode(data).decode('utf-8')
+                                    chunk_msg = {
+                                        "message_type": "input_audio_chunk",
+                                        "audio_base_64": base64_audio
+                                    }
+                                    await el_ws.send(json.dumps(chunk_msg))
+                            elif "text" in message:
+                                text_data = message["text"]
+                                try:
+                                    payload = json.loads(text_data)
+                                    if payload.get("type") == "ping":
+                                        await websocket.send_json({
+                                            "type": "pong",
+                                            "client_time": payload.get("client_time"),
+                                            "cloud_rtt": latest_elevenlabs_rtt
+                                        })
+                                except Exception as e:
+                                    print(f"⚠️ Error parsing ElevenLabs client text message: {e}")
+                    except WebSocketDisconnect:
+                        print("🔌 Browser disconnected from ElevenLabs STT.")
+                    except Exception as e:
+                        print(f"⚠️ Error receiving from browser (ElevenLabs): {e}")
+
+                async def send_to_browser():
+                    completed_words = []
+                    start_time = time.time()
+                    try:
+                        async for msg in el_ws:
+                            data = json.loads(msg)
+                            msg_type = data.get("message_type")
+
+                            if msg_type == "partial_transcript":
+                                interim_text = data.get("text", "").strip()
+                                final_text = " ".join(completed_words)
+                                elapsed_ms = int((time.time() - start_time) * 1000)
+                                await websocket.send_json({
+                                    "final_text": final_text,
+                                    "interim_text": interim_text,
+                                    "latest_start_ms": max(0, elapsed_ms - 200),
+                                    "latest_end_ms": elapsed_ms
+                                })
+                            elif msg_type == "committed_transcript":
+                                committed_text = data.get("text", "").strip()
+                                if committed_text:
+                                    completed_words.append(committed_text)
+                                final_text = " ".join(completed_words)
+                                elapsed_ms = int((time.time() - start_time) * 1000)
+                                await websocket.send_json({
+                                    "final_text": final_text,
+                                    "interim_text": "",
+                                    "latest_start_ms": max(0, elapsed_ms - 200),
+                                    "latest_end_ms": elapsed_ms
+                                })
+                    except Exception as e:
+                        print(f"⚠️ Error sending to browser (ElevenLabs): {e}")
+
+                # Run both tasks concurrently
+                browser_recv_task = asyncio.create_task(receive_from_browser())
+                browser_send_task = asyncio.create_task(send_to_browser())
+
+                done, pending = await asyncio.wait(
+                    [browser_recv_task, browser_send_task],
+                    return_when=asyncio.FIRST_COMPLETED
+                )
+
+                for task in pending:
+                    task.cancel()
+        except Exception as e:
+            print(f"❌ ElevenLabs Real-Time STT session error: {e}")
+            try:
+                await websocket.send_json({
+                    "final_text": f"❌ ElevenLabs Connection Error: {e}",
+                    "interim_text": ""
+                })
+            except Exception:
+                pass
+        finally:
+            print("🔌 ElevenLabs STT client closed.")
+
+    elif engine.startswith("local"):
         if engine == "local-moonshine":
             # Run local native Moonshine ASR pipeline directly inside FastAPI
             print("🌙 Launching native local Moonshine ASR pipeline...")

@@ -64,6 +64,10 @@ const modelMetadata = {
         label: "stt-rt-v4 (Cloud)",
         desc: "☁️ <strong>Soniox Cloud Premium:</strong> High-fidelity real-time transcription powered by Soniox Speech AI. Optimized for multi-speaker, complex vocabulary, and premium clarity."
     },
+    "elevenlabs": {
+        label: "Scribe v2 Realtime (Cloud)",
+        desc: "☁️ <strong>ElevenLabs Scribe v2:</strong> Premium real-time Speech-to-Text streaming powered by Scribe v2 Realtime. Engineered for ultra-low latency (~150ms) with automated silence-based commit."
+    },
     "local": {
         label: "Qwen3 ASR 0.6B (Local MLX)",
         desc: "🚀 <strong>Local Qwen3 ASR (0.6B MLX):</strong> Swift-native multilingual model running entirely offline on your Mac's GPU via MLX. Extremely responsive (~13ms model delay)."
