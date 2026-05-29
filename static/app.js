@@ -19,6 +19,8 @@ let latestCloudRtt1 = null;
 let latestCloudRtt2 = null;
 let latestTotalLatency1 = null;
 let latestTotalLatency2 = null;
+let latencyHistory1 = [];
+let latencyHistory2 = [];
 
 // Audio Visualizer Level Tracking
 const visualizerBars = document.querySelectorAll(".wave-bar");
@@ -161,6 +163,8 @@ async function startRecording() {
     currentInterimText1 = "";
     currentFinalText2 = "";
     currentInterimText2 = "";
+    latencyHistory1 = [];
+    latencyHistory2 = [];
     
     updateStatus("connecting");
     
@@ -239,6 +243,7 @@ async function startRecording() {
             if (data.latest_start_ms > 0 && streamStartTime) {
                 const wordStartSystemTime = streamStartTime + data.latest_start_ms;
                 latestTotalLatency1 = Math.max(30, Date.now() - wordStartSystemTime);
+                latencyHistory1.push(latestTotalLatency1);
                 updateLatencyUI(1, latestTotalLatency1);
                 updateLatencyBreakdownUI(1);
             }
@@ -295,6 +300,7 @@ async function startRecording() {
             if (data.latest_start_ms > 0 && streamStartTime) {
                 const wordStartSystemTime = streamStartTime + data.latest_start_ms;
                 latestTotalLatency2 = Math.max(30, Date.now() - wordStartSystemTime);
+                latencyHistory2.push(latestTotalLatency2);
                 updateLatencyUI(2, latestTotalLatency2);
                 updateLatencyBreakdownUI(2);
             }
@@ -792,6 +798,20 @@ if (btnScoreLincoln && scoreModal) {
         document.getElementById("score-stats-2").textContent = `Words matched: ${res2.hypLength} / ${res2.refLength}`;
         
         document.getElementById("reference-word-count").textContent = `${res1.refLength} Words`;
+
+        // Calculate and Render Delay Aggregations
+        const getLatencyStats = (history) => {
+            if (!history || history.length === 0) {
+                return "Avg Delay: --";
+            }
+            const sum = history.reduce((a, b) => a + b, 0);
+            const avg = Math.round(sum / history.length);
+            const max = Math.round(Math.max(...history));
+            return `Avg Delay: ${avg}ms (Max: ${max}ms, n=${history.length})`;
+        };
+
+        document.getElementById("score-delay-1").textContent = getLatencyStats(latencyHistory1);
+        document.getElementById("score-delay-2").textContent = getLatencyStats(latencyHistory2);
 
         // Slide/Fade Modal in
         scoreModal.style.pointerEvents = "auto";
