@@ -701,37 +701,35 @@ function resetLatencyBreakdownUI(slot) {
     if (breakdownModel) breakdownModel.textContent = "--";
 }
 
-// Lincoln Gettysburg Address Reference Text
-const LINCOLN_GETTYSBURG_ADDRESS = `Four score and seven years ago our fathers brought forth on this continent, a new nation, conceived in Liberty, and dedicated to the proposition that all men are created equal.
+// Gettysburg Address First Paragraph Reference Text
+const GETTYSBURG_REFERENCE = "Four score and seven years ago our fathers brought forth, upon this continent, a new nation, conceived in liberty, and dedicated to the proposition that all men are created equal.";
 
-Now we are engaged in a great civil war, testing whether that nation, or any nation so conceived and so dedicated, can long endure. We are met on a great battle-field of that war. We have come to dedicate a portion of that field, as a final resting place for those who here gave their lives that that nation might live. It is altogether fitting and proper that we should do this.
-
-But, in a larger sense, we can not dedicate -- we can not consecrate -- we can not hallow -- this ground. The brave men, living and dead, who struggled here, have consecrated it, far above our poor power to add or detract. The world will little note, nor long remember what we say here, but it can never forget what they did here. It is for us the living, rather, to be dedicated here to the unfinished work which they who fought here have thus far so nobly advanced. It is rather for us to be here dedicated to the great task remaining before us -- that from these honored dead we take increased devotion to that cause for which they gave the last full measure of devotion -- that we here highly resolve that these dead shall not have died in vain -- that this nation, under God, shall have a new birth of freedom -- and that government of the people, by the people, for the people, shall not perish from the earth.`;
-
-// Levenshtein distance based ASR Word Error Rate (WER) and Word Accuracy calculator
+// Levenshtein distance based ASR Word Error Rate (WER), Accuracy and detailed Alignment backtracking calculator
 function calculateASRAccuracy(referenceText, hypothesisText) {
-    const cleanText = (text) => {
-        return text
-            .toLowerCase()
-            .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?"'—–]/g, " ")
-            .replace(/\s+/g, " ")
-            .trim();
+    const cleanWord = (w) => {
+        if (!w) return "";
+        return w.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?"'—–]/g, "").trim();
     };
 
-    const refWords = cleanText(referenceText).split(" ").filter(w => w.length > 0);
-    const hypWords = cleanText(hypothesisText).split(" ").filter(w => w.length > 0);
+    const refWords = referenceText.trim().split(/\s+/).filter(w => w.trim().length > 0);
+    const cleanRefWords = refWords.map(w => cleanWord(w)).filter(w => w.length > 0);
+    
+    const hypWords = hypothesisText.trim().split(/\s+/).filter(w => w.trim().length > 0);
+    const cleanHypWords = hypWords.map(w => cleanWord(w));
 
-    if (refWords.length === 0) {
+    if (cleanRefWords.length === 0) {
         return {
-            wer: hypWords.length === 0 ? 0 : 1,
-            accuracy: hypWords.length === 0 ? 100.0 : 0.0,
+            wer: cleanHypWords.length === 0 ? 0 : 1,
+            accuracy: cleanHypWords.length === 0 ? 100.0 : 0.0,
             refLength: 0,
-            hypLength: hypWords.length
+            hypLength: cleanHypWords.length,
+            alignment: [],
+            refWords: []
         };
     }
 
-    const n = refWords.length;
-    const m = hypWords.length;
+    const n = cleanRefWords.length;
+    const m = cleanHypWords.length;
 
     // DP table initialization
     const dp = Array.from({ length: n + 1 }, () => Array(m + 1).fill(0));
@@ -742,7 +740,7 @@ function calculateASRAccuracy(referenceText, hypothesisText) {
     // DP table computation
     for (let i = 1; i <= n; i++) {
         for (let j = 1; j <= m; j++) {
-            if (refWords[i - 1] === hypWords[j - 1]) {
+            if (cleanRefWords[i - 1] === cleanHypWords[j - 1]) {
                 dp[i][j] = dp[i - 1][j - 1];
             } else {
                 dp[i][j] = Math.min(
@@ -758,35 +756,183 @@ function calculateASRAccuracy(referenceText, hypothesisText) {
     const wer = edits / n;
     const accuracy = Math.max(0, 1 - wer) * 100.0;
 
+    // Backtracking for detailed alignment
+    let i = n, j = m;
+    const alignment = [];
+
+    while (i > 0 || j > 0) {
+        if (i > 0 && j > 0 && cleanRefWords[i - 1] === cleanHypWords[j - 1]) {
+            alignment.push({
+                type: 'match',
+                refIdx: i - 1,
+                refWord: refWords[i - 1],
+                hypIdx: j - 1,
+                hypWord: hypWords[j - 1]
+            });
+            i--;
+            j--;
+        } else {
+            let substCost = (i > 0 && j > 0) ? dp[i - 1][j - 1] : Infinity;
+            let delCost = (i > 0) ? dp[i - 1][j] : Infinity;
+            let insCost = (j > 0) ? dp[i][j - 1] : Infinity;
+
+            let minCost = Math.min(substCost, delCost, insCost);
+
+            if (minCost === substCost) {
+                alignment.push({
+                    type: 'substitution',
+                    refIdx: i - 1,
+                    refWord: refWords[i - 1],
+                    hypIdx: j - 1,
+                    hypWord: hypWords[j - 1]
+                });
+                i--;
+                j--;
+            } else if (minCost === delCost) {
+                alignment.push({
+                    type: 'deletion',
+                    refIdx: i - 1,
+                    refWord: refWords[i - 1],
+                    hypIdx: null,
+                    hypWord: null
+                });
+                i--;
+            } else {
+                alignment.push({
+                    type: 'insertion',
+                    refIdx: null,
+                    refWord: null,
+                    hypIdx: j - 1,
+                    hypWord: hypWords[j - 1]
+                });
+                j--;
+            }
+        }
+    }
+    alignment.reverse();
+
     return {
         wer: wer,
         accuracy: accuracy,
         refLength: n,
-        hypLength: m
+        hypLength: m,
+        alignment: alignment,
+        refWords: refWords
     };
 }
 
-// UI Event Listeners for Lincoln Gettysburg Address Scoring Modal
+// Renders detailed side-by-side 3-way table
+function renderASRScoringTable(mergedRows) {
+    let html = `
+    <table style="width: 100%; border-collapse: collapse; text-align: left; font-family: var(--font-sans); color: var(--color-text-primary);">
+        <thead>
+            <tr style="border-bottom: 1px solid var(--color-border); background: var(--color-surface); position: sticky; top: 0; z-index: 10;">
+                <th style="padding: 12px; font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); width: 45px;">#</th>
+                <th style="padding: 12px; font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); width: 180px;">Expected (Gettysburg)</th>
+                <th style="padding: 12px; font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-accent);" id="table-header-engine-1">Engine 1</th>
+                <th style="padding: 12px; font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: hsl(270, 100%, 75%);" id="table-header-engine-2">Engine 2</th>
+            </tr>
+        </thead>
+        <tbody>
+    `;
+    
+    let refWordCounter = 0;
+    
+    mergedRows.forEach((row, idx) => {
+        const bg = idx % 2 === 0 ? 'rgba(255, 255, 255, 0.015)' : 'rgba(0, 0, 0, 0.15)';
+        
+        let numCol = "";
+        let refCol = "";
+        
+        if (row.isInsertion) {
+            numCol = '<span style="color: var(--color-text-muted); font-size: 0.75rem;">-</span>';
+            refCol = '<span style="color: var(--color-text-muted); font-style: italic; opacity: 0.5;">[extra]</span>';
+        } else {
+            refWordCounter++;
+            numCol = `<span style="color: var(--color-text-muted); font-family: var(--font-mono); font-size: 0.75rem;">${refWordCounter}</span>`;
+            refCol = `<strong style="color: var(--color-text-primary); font-weight: 500;">${row.refWord}</strong>`;
+        }
+        
+        const renderCell = (step, expectedWord) => {
+            if (!step) {
+                if (row.isInsertion) {
+                    return '<span style="color: var(--color-text-muted); font-size: 0.75rem;">-</span>';
+                }
+                return '<span style="color: var(--color-text-muted); font-size: 0.75rem;">-</span>';
+            }
+            
+            if (step.type === 'match') {
+                return `<span style="color: var(--color-success); font-weight: 500; display: inline-flex; align-items: center; gap: 4px;">✓ ${step.hypWord}</span>`;
+            } else if (step.type === 'substitution') {
+                return `
+                <div style="display: inline-flex; flex-direction: column; gap: 1px; vertical-align: middle;">
+                    <span style="color: var(--color-danger); text-decoration: line-through; font-size: 0.7rem; opacity: 0.65; line-height: 1;">${expectedWord}</span>
+                    <span style="color: hsl(38, 100%, 70%); font-weight: 600; font-size: 0.85rem; line-height: 1;">${step.hypWord}</span>
+                </div>
+                `;
+            } else if (step.type === 'deletion') {
+                return `<span style="color: var(--color-danger); text-decoration: line-through; font-size: 0.8rem; opacity: 0.65;">[omitted] (${expectedWord})</span>`;
+            } else if (step.type === 'insertion') {
+                return `
+                <span style="background: rgba(147, 51, 234, 0.12); color: hsl(270, 95%, 80%); border: 1px solid rgba(147, 51, 234, 0.25); padding: 1px 6px; border-radius: 4px; font-weight: 500; font-size: 0.8rem; display: inline-block;">
+                    ${step.hypWord}
+                </span>
+                <span style="opacity: 0.5; font-size: 0.65rem; color: var(--color-text-secondary); margin-left: 2px;">(extra)</span>
+                `;
+            }
+            return "-";
+        };
+        
+        const cell1 = renderCell(row.engine1, row.refWord);
+        const cell2 = renderCell(row.engine2, row.refWord);
+        
+        html += `
+            <tr style="background: ${bg}; border-bottom: 1px solid rgba(255, 255, 255, 0.03); transition: var(--transition-smooth);" onmouseover="this.style.background='rgba(255,255,255,0.04)'" onmouseout="this.style.background='${bg}'">
+                <td style="padding: 8px 12px; vertical-align: middle; width: 45px;">${numCol}</td>
+                <td style="padding: 8px 12px; vertical-align: middle; width: 180px;">${refCol}</td>
+                <td style="padding: 8px 12px; vertical-align: middle;">${cell1}</td>
+                <td style="padding: 8px 12px; vertical-align: middle;">${cell2}</td>
+            </tr>
+        `;
+    });
+    
+    html += `
+        </tbody>
+    </table>
+    `;
+    return html;
+}
+
+// UI Event Listeners for Gettysburg Address Scoring Modal
 const scoreModal = document.getElementById("score-modal");
 const closeScoreModal = document.getElementById("close-score-modal");
 const btnCloseScore = document.getElementById("btn-close-score");
-const btnScoreLincoln = document.getElementById("btn-score-lincoln");
+const btnScoreGettysburg = document.getElementById("btn-score-gettysburg");
 
-if (btnScoreLincoln && scoreModal) {
-    btnScoreLincoln.addEventListener("click", () => {
+if (btnScoreGettysburg && scoreModal) {
+    btnScoreGettysburg.addEventListener("click", () => {
         // Collect full hypothesis texts (Finalized + Interim)
         const hypText1 = ((currentFinalText1 || "") + " " + (currentInterimText1 || "")).trim();
         const hypText2 = ((currentFinalText2 || "") + " " + (currentInterimText2 || "")).trim();
         
-        // Calculate WER metrics
-        const res1 = calculateASRAccuracy(LINCOLN_GETTYSBURG_ADDRESS, hypText1);
-        const res2 = calculateASRAccuracy(LINCOLN_GETTYSBURG_ADDRESS, hypText2);
+        // Calculate WER metrics and alignment steps
+        const res1 = calculateASRAccuracy(GETTYSBURG_REFERENCE, hypText1);
+        const res2 = calculateASRAccuracy(GETTYSBURG_REFERENCE, hypText2);
         
         // Update Modal Labels
         const lbl1 = document.getElementById("score-engine-label-1");
         const lbl2 = document.getElementById("score-engine-label-2");
-        if (selectEngine1 && lbl1) lbl1.textContent = modelMetadata[selectEngine1.value]?.label.split(" (")[0] || "Engine 1";
-        if (selectEngine2 && lbl2) lbl2.textContent = modelMetadata[selectEngine2.value]?.label.split(" (")[0] || "Engine 2";
+        const name1 = (selectEngine1 && modelMetadata[selectEngine1.value]?.label.split(" (")[0]) || "Engine 1";
+        const name2 = (selectEngine2 && modelMetadata[selectEngine2.value]?.label.split(" (")[0]) || "Engine 2";
+        
+        if (lbl1) lbl1.textContent = name1;
+        if (lbl2) lbl2.textContent = name2;
+        
+        // Update Table Headers dynamically with engine names
+        const th1 = document.getElementById("table-header-engine-1");
+        const th2 = document.getElementById("table-header-engine-2");
+        if (th1) th1.textContent = name1;
+        if (th2) th2.textContent = name2;
         
         // Render Accuracy Metrics
         document.getElementById("score-accuracy-1").textContent = `${res1.accuracy.toFixed(1)}%`;
@@ -798,6 +944,66 @@ if (btnScoreLincoln && scoreModal) {
         document.getElementById("score-stats-2").textContent = `Words matched: ${res2.hypLength} / ${res2.refLength}`;
         
         document.getElementById("reference-word-count").textContent = `${res1.refLength} Words`;
+
+        // Anchor-based alignment group helper
+        const assignAnchors = (alignment, n) => {
+            let currentAnchor = n;
+            const stepsWithAnchor = [];
+            for (let i = alignment.length - 1; i >= 0; i--) {
+                const step = alignment[i];
+                if (step.refIdx !== null) {
+                    currentAnchor = step.refIdx;
+                }
+                stepsWithAnchor.push({ step, anchor: currentAnchor });
+            }
+            stepsWithAnchor.reverse();
+            
+            const byAnchor = Array.from({ length: n + 1 }, () => []);
+            for (const item of stepsWithAnchor) {
+                byAnchor[item.anchor].push(item.step);
+            }
+            return byAnchor;
+        };
+
+        const A1_by_anchor = assignAnchors(res1.alignment, res1.refLength);
+        const A2_by_anchor = assignAnchors(res2.alignment, res2.refLength);
+        
+        const mergedRows = [];
+        const n = res1.refLength;
+        const refWords = res1.refWords;
+        
+        for (let a = 0; a <= n; a++) {
+            const ins1 = A1_by_anchor[a].filter(step => step.type === 'insertion');
+            const ins2 = A2_by_anchor[a].filter(step => step.type === 'insertion');
+            
+            const maxIns = Math.max(ins1.length, ins2.length);
+            for (let idx = 0; idx < maxIns; idx++) {
+                mergedRows.push({
+                    isInsertion: true,
+                    refWord: "-",
+                    engine1: ins1[idx] || null,
+                    engine2: ins2[idx] || null
+                });
+            }
+            
+            if (a < n) {
+                const e1_step = A1_by_anchor[a].find(step => step.refIdx === a);
+                const e2_step = A2_by_anchor[a].find(step => step.refIdx === a);
+                
+                mergedRows.push({
+                    isInsertion: false,
+                    refWord: refWords[a],
+                    engine1: e1_step || null,
+                    engine2: e2_step || null
+                });
+            }
+        }
+        
+        // Dynamic Table Injection
+        const tableContainer = document.getElementById("score-table-container");
+        if (tableContainer) {
+            tableContainer.innerHTML = renderASRScoringTable(mergedRows);
+        }
 
         // Calculate and Render Delay Aggregations
         const getLatencyStats = (history) => {
